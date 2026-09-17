@@ -14,11 +14,16 @@ def diffusion_delta(feature_emb: torch.Tensor, structure_emb: torch.Tensor) -> t
     eps = 1e-8
     feat_norm = F.normalize(feature_emb, dim=-1, eps=eps)
     struct_norm = F.normalize(structure_emb, dim=-1, eps=eps)
+
     cos_f = feat_norm @ feat_norm.transpose(0, 1)
     cos_s = struct_norm @ struct_norm.transpose(0, 1)
-    log_num = F.softplus(cos_f)
+
+    # log_den calculates log(sum(exp(cos_s)))
     log_den = torch.logsumexp(cos_s, dim=0, keepdim=True)
-    return log_num - log_den
+
+    # torch.exp(cos_f - log_den) calculates (exp(cos_f) / sum(exp(cos_s)))
+    # torch.log1p(x) calculates log(1 + x) safely
+    return torch.log1p(torch.exp(cos_f - log_den))
 
 
 class MultiHeadSelfAttention(nn.Module):
