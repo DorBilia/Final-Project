@@ -55,6 +55,41 @@ Reports accuracy, precision, recall, F1, ROC-AUC, a confusion matrix (`checkpoin
 
 NF-BoT-IoT-v2 has no packet timestamps, so Δt uses the original CSV row index. IP edges follow Equation (4) (any shared endpoint).
 
+## Stream (replay alerts)
+
+Training and evaluate are unchanged. `python -m xganet.stream` reads a NetFlow CSV or parquet **in row order**, scores a sliding window with a trained checkpoint, and prints an alert for each flow whose predicted class is not Benign and whose softmax probability is at least `--threshold`.
+
+This is **offline-trained, online-replay**. There is no packet sniffer or nProbe/Zeek feeder in this pass. Prefer the cached sample parquet for demos (correct columns plus `row_idx`). The full 37.8M-row CSV is supported via chunked scan; use `--max-windows` to cap a run.
+
+```bash
+python -m xganet.stream \
+  --ckpt checkpoints/xganet_best.pt \
+  --data packet_dataset/nf_botiot_v2_sample.parquet \
+  --window 128 --stride 128 --threshold 0.5 --rate 0
+```
+
+| Flag | Default | Role |
+| --- | --- | --- |
+| `--window` | 128 | Flows in each scored graph (same size as training `B`) |
+| `--stride` | 128 | How far to advance; `32` overlaps windows for snappier alerts |
+| `--threshold` | 0.5 | Minimum predicted-class probability to alert |
+| `--rate` | 0 | Ingest pace in flows/sec; `0` is as fast as the GPU allows |
+| `--jsonl` | unset | Append the same alert records as JSON lines |
+| `--max-windows` | unset | Stop after this many scored windows |
+| `--benign-class` | `Benign` | Required if the checkpoint has no class named `Benign` |
+
+A leftover partial window is scored if it has at least two flows; a single leftover row is skipped.
+
+**Scaling is frozen** from the checkpoint (`feat_min` / `feat_max`). The stream never refits min–max.
+
+**Structure features are window-local.** Degree, centrality, and IP/time flags are computed on the current window only, not on the 90,600-row training subsample. That is the honest online version of Table 4 and will differ slightly from training’s global degrees. Time edges still use CSV `row_idx` and `Δt` (default 100 rows).
+
+Alert line example:
+
+```
+ALERT row=1842 192.168.1.10 -> 10.0.0.5 pred=DDoS p=0.9731 gt=DDoS
+```
+
 ## Tests
 
 ```bash
