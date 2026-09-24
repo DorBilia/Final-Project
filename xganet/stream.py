@@ -29,17 +29,17 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Replay NetFlow CSV/parquet and print X-GANet alerts"
     )
-    parser.add_argument("--ckpt", type=str, default="checkpoints/xganet_best.pt")
-    parser.add_argument("--data", type=str, default="packet_dataset/nf_botiot_v2_sample.parquet")
-    parser.add_argument("--window", type=int, default=128)
-    parser.add_argument("--stride", type=int, default=128)
-    parser.add_argument("--threshold", type=float, default=0.5)
-    parser.add_argument("--rate", type=float, default=0.0, help="Ingest flows/sec; 0 = unlimited")
-    parser.add_argument("--jsonl", type=str, default=None)
-    parser.add_argument("--max-windows", type=int, default=None)
-    parser.add_argument("--benign-class", type=str, default=None)
-    parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--chunk-size", type=int, default=8192)
+    parser.add_argument("--ckpt", type=str, default="checkpoints/xganet_best.pt")  # Path to the trained model checkpoint
+    parser.add_argument("--data", type=str, default="packet_dataset/nf_botiot_v2_sample.parquet")  # Path to the input NetFlow file for streaming
+    parser.add_argument("--window", type=int, default=128)  # Number of flows to include in each sliding window
+    parser.add_argument("--stride", type=int, default=128)  # Step size for advancing the sliding window
+    parser.add_argument("--threshold", type=float, default=0.5)  # Minimum prediction probability required to trigger an alert
+    parser.add_argument("--rate", type=float, default=0.0, help="Ingest flows/sec; 0 = unlimited")  # Ingestion rate in flows/sec; 0 means unlimited
+    parser.add_argument("--jsonl", type=str, default=None)  # Optional path to output alerts in JSONL format
+    parser.add_argument("--max-windows", type=int, default=None)  # Maximum number of sliding windows to process before stopping
+    parser.add_argument("--benign-class", type=str, default=None)  # Name of the normal (non-attack) class
+    parser.add_argument("--device", type=str, default="cuda")  # Device to run streaming inference on (e.g., 'cuda' or 'cpu')
+    parser.add_argument("--chunk-size", type=int, default=8192)  # Number of records to read at once from the file
     return parser.parse_args()
 
 

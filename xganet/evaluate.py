@@ -19,11 +19,11 @@ from xganet.utils import autocast_context, configure_runtime, resolve_device, se
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate X-GANet")
-    parser.add_argument("--ckpt", type=str, default="checkpoints/xganet_best.pt")
-    parser.add_argument("--data", type=str, default="packet_dataset/nf_botiot_v2_sample.parquet")
-    parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
+    parser.add_argument("--ckpt", type=str, default="checkpoints/xganet_best.pt")  # Path to the trained model checkpoint
+    parser.add_argument("--data", type=str, default="packet_dataset/nf_botiot_v2_sample.parquet")  # Path to the dataset to evaluate on
+    parser.add_argument("--device", type=str, default="cuda")  # Device to run evaluation on (e.g., 'cuda' or 'cpu')
+    parser.add_argument("--batch-size", type=int, default=128)  # Number of samples per batch
+    parser.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])  # Which dataset split to evaluate (train, val, or test)
     return parser.parse_args()
 
 

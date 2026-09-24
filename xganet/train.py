@@ -22,17 +22,17 @@ from xganet.utils import autocast_context, configure_runtime, resolve_device, se
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train X-GANet on NF-BoT-IoT-v2")
-    parser.add_argument("--data", type=str, default="packet_dataset/NF-BoT-IoT-v2.csv")
-    parser.add_argument("--sample-size", type=int, default=90600)
-    parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--amp", type=str, default="bf16", choices=["bf16", "fp16", "none"])
-    parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--delta-t", type=int, default=100)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--num-workers", type=int, default=None)
-    parser.add_argument("--ckpt-dir", type=str, default="checkpoints")
-    parser.add_argument("--cache", type=str, default="packet_dataset/nf_botiot_v2_sample.parquet")
+    parser.add_argument("--data", type=str, default="packet_dataset/NF-BoT-IoT-v2.csv")  # Path to the source CSV dataset
+    parser.add_argument("--sample-size", type=int, default=90600)  # Number of flows to subsample from the dataset
+    parser.add_argument("--device", type=str, default="cuda")  # Device to run training on (e.g., 'cuda' or 'cpu')
+    parser.add_argument("--amp", type=str, default="bf16", choices=["bf16", "fp16", "none"])  # Automatic Mixed Precision data type
+    parser.add_argument("--batch-size", type=int, default=128)  # Number of samples per training batch
+    parser.add_argument("--epochs", type=int, default=100)  # Total number of training epochs
+    parser.add_argument("--delta-t", type=int, default=100)  # Temporal window size for time-based graph edges
+    parser.add_argument("--seed", type=int, default=42)  # Random seed for reproducibility
+    parser.add_argument("--num-workers", type=int, default=None)  # Number of worker threads for data loading
+    parser.add_argument("--ckpt-dir", type=str, default="checkpoints")  # Directory to save model checkpoints
+    parser.add_argument("--cache", type=str, default="packet_dataset/nf_botiot_v2_sample.parquet")  # Path for caching the subsampled dataset
     return parser.parse_args()
 
 
