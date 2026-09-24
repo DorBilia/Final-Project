@@ -132,6 +132,11 @@ def run_stream(args: argparse.Namespace) -> int:
         f"threshold={args.threshold} benign={benign_label}",
         file=sys.stderr,
     )
+    
+    y_true_map: dict[int, int] = {}
+    y_pred_map: dict[int, int] = {}
+    y_prob_map: dict[int, np.ndarray] = {}
+    
     try:
         for window_id, records in enumerate(
             iter_sliding_windows(iter(ingest), args.window, args.stride),
@@ -146,6 +151,17 @@ def run_stream(args: argparse.Namespace) -> int:
                 print(format_alert_line(alert), flush=True)
                 if jsonl_handle is not None:
                     _write_jsonl(jsonl_handle, alert)
+                    
+            # Track predictions for evaluation
+            preds = probs.argmax(axis=-1)
+            for i, row_idx in enumerate(meta.row_idx):
+                row_idx = int(row_idx)
+                gt = meta.attacks[i]
+                if gt is not None and gt in class_names:
+                    y_true_map[row_idx] = class_names.index(gt)
+                    y_pred_map[row_idx] = preds[i]
+                    y_prob_map[row_idx] = probs[i]
+                    
             n_windows += 1
             n_alerts += len(alerts)
             print(
@@ -164,6 +180,22 @@ def run_stream(args: argparse.Namespace) -> int:
         f"done windows={n_windows} alerts={n_alerts} elapsed_s={elapsed:.2f}",
         file=sys.stderr,
     )
+    
+    if y_true_map:
+        from xganet.metrics import compute_metrics
+        all_rows = sorted(y_true_map.keys())
+        y_true = np.array([y_true_map[k] for k in all_rows])
+        y_pred = np.array([y_pred_map[k] for k in all_rows])
+        y_prob = np.array([y_prob_map[k] for k in all_rows])
+        metrics = compute_metrics(y_true, y_pred, y_prob, class_names)
+        print(f"\n--- Streaming Evaluation Metrics ({len(all_rows)} unique flows) ---")
+        print(f"Accuracy:  {metrics['accuracy']:.4f}")
+        print(f"Precision: {metrics['precision']:.4f}")
+        print(f"Recall:    {metrics['recall']:.4f}")
+        print(f"F1 Score:  {metrics['f1']:.4f}")
+        print(f"AUC:       {metrics['auc']:.4f}" if isinstance(metrics['auc'], float) else f"AUC:       {metrics['auc']}")
+        print(metrics["report"])
+
     return 0
 
 
