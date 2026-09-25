@@ -20,7 +20,8 @@ class XGANetConfig:
     lambda_contrast: float = 0.1
     learning_rate: float = 1e-4
     weight_decay: float = 5e-5
-    batch_size: int = 128
+    batch_size: int = 256
+    stride: int = 60
     lcm_init_scale: float = 0.1
     fusion_bias: float = 0.0
     early_stop_patience: int = 10
@@ -28,7 +29,7 @@ class XGANetConfig:
     delta_t: int = 100
     sample_size: int = 90600
     min_per_class: int = 2000
-    seed: int = 42
+    seed: int = 43
     gcn_hidden: int = 128
     ffn_multiplier: int = 4
     train_ratio: float = 0.8

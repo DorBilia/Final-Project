@@ -119,20 +119,50 @@ def stratified_sample_indices(
         groups[key] = idx
         class_counts[key] = int(idx.size)
 
-    alloc = allocate_class_counts(class_counts, sample_size, keep_all, min_per_class)
-    chosen: list[np.ndarray] = []
-    for name, take in alloc.items():
+    # Convert sizes to window chunks to preserve burst continuity
+    window = 256
+    target_chunks = max(1, sample_size // window)
+    min_chunks = max(1, min_per_class // window)
+    
+    chunk_counts = {k: max(1, v // window) for k, v in class_counts.items()}
+    
+    alloc_chunks = allocate_class_counts(
+        chunk_counts, target_chunks, keep_all, min_chunks
+    )
+    
+    chosen_anchors: list[np.ndarray] = []
+    for name, take in alloc_chunks.items():
         if take <= 0:
             continue
         pool = groups[name]
         if take >= pool.size:
-            chosen.append(pool)
+            chosen_anchors.append(pool)
         else:
             pick = rng.choice(pool, size=take, replace=False)
-            chosen.append(np.sort(pick))
-    if not chosen:
+            chosen_anchors.append(np.sort(pick))
+            
+    if not chosen_anchors:
         return np.empty(0, dtype=np.int64)
-    return np.sort(np.concatenate(chosen))
+        
+    anchors = np.concatenate(chosen_anchors)
+    
+    # Expand anchors into contiguous sequence bursts
+    chosen_rows = set()
+    n_total = len(attacks)
+    
+    for anchor in anchors:
+        start = max(0, anchor - window // 2)
+        end = min(n_total, start + window)
+        for i in range(start, end):
+            chosen_rows.add(i)
+            
+    # Truncate or pad slightly to match sample request exactly (optional, but good for exact sizes)
+    sorted_rows = sorted(list(chosen_rows))
+    if len(sorted_rows) > sample_size:
+        # Take the first sample_size elements, protecting the bursts somewhat
+        sorted_rows = sorted_rows[:sample_size]
+        
+    return np.array(sorted_rows, dtype=np.int64)
 
 
 def _cache_path(data_path: Path, sample_size: int, seed: int) -> Path:
@@ -262,22 +292,21 @@ def split_indices(
     val_fraction_of_train: float,
     seed: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Chronologically split the data to preserve the sequential window integrity."""
     n = len(y)
     all_idx = np.arange(n)
     if n < 5:
         return all_idx, all_idx, all_idx
-    train_val, test = train_test_split(
-        all_idx, train_size=train_ratio, random_state=seed, stratify=y
-    )
-    if len(train_val) < 5:
-        return train_val, train_val, test
-    train, val = train_test_split(
-        train_val,
-        test_size=val_fraction_of_train,
-        random_state=seed,
-        stratify=y[train_val],
-    )
-    return train, val, test
+
+    # Chronologically split instead of train_test_split scatter
+    train_end = int(n * train_ratio)
+    val_end = train_end + int(train_end * val_fraction_of_train)
+    
+    train_idx = all_idx[:train_end]
+    val_idx = all_idx[train_end:val_end]
+    test_idx = all_idx[val_end:]
+
+    return train_idx, val_idx, test_idx
 
 
 def _subset(payload: dict[str, np.ndarray | tuple[str, ...]], idx: np.ndarray) -> dict[str, np.ndarray]:
@@ -305,6 +334,8 @@ def split_flow_arrays(
     class_names = payload["class_names"]
 
     def _make(idx: np.ndarray) -> FlowArrays:
+        if len(idx) == 0:
+            idx = np.array([0]) # Fallback to prevent crash on empty split
         part = _subset(payload, idx)
         return FlowArrays(
             features=minmax_scale(part["raw_features"], feat_min, feat_max),

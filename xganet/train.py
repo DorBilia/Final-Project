@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from xganet.config import XGANetConfig
-from xganet.data.dataset import FlowGraphDataset, collate_flows
+from xganet.data.dataset import FlowGraphDataset, collate_flows, SlidingWindowBatchSampler
 from xganet.data.load_nf import load_flow_arrays
 from xganet.metrics import compute_metrics
 from xganet.models.losses import XGANetCriterion
@@ -26,7 +26,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample-size", type=int, default=90600)  # Number of flows to subsample from the dataset
     parser.add_argument("--device", type=str, default="cuda")  # Device to run training on (e.g., 'cuda' or 'cpu')
     parser.add_argument("--amp", type=str, default="bf16", choices=["bf16", "fp16", "none"])  # Automatic Mixed Precision data type
-    parser.add_argument("--batch-size", type=int, default=128)  # Number of samples per training batch
+    parser.add_argument("--batch-size", type=int, default=256)  # Number of samples per training batch
+    parser.add_argument("--stride", type=int, default=60)  # Stride length for window batches
     parser.add_argument("--epochs", type=int, default=100)  # Total number of training epochs
     parser.add_argument("--delta-t", type=int, default=100)  # Temporal window size for time-based graph edges
     parser.add_argument("--seed", type=int, default=42)  # Random seed for reproducibility
@@ -43,6 +44,7 @@ def config_from_args(args: argparse.Namespace) -> XGANetConfig:
     return XGANetConfig(
         sample_size=args.sample_size,
         batch_size=args.batch_size,
+        stride=args.stride,
         epochs=args.epochs,
         delta_t=args.delta_t,
         seed=args.seed,
@@ -178,27 +180,34 @@ def main() -> None:
     val_ds = FlowGraphDataset(val_arr)
     test_ds = FlowGraphDataset(test_arr)
     pin = device.type == "cuda"
+    
+    train_sampler = SlidingWindowBatchSampler(
+        len(train_ds), config.batch_size, config.stride, shuffle_windows=True
+    )
+    val_sampler = SlidingWindowBatchSampler(
+        len(val_ds), config.batch_size, config.stride, shuffle_windows=False
+    )
+    test_sampler = SlidingWindowBatchSampler(
+        len(test_ds), config.batch_size, config.stride, shuffle_windows=False
+    )
+
     train_loader = DataLoader(
         train_ds,
-        batch_size=config.batch_size,
-        shuffle=True,
+        batch_sampler=train_sampler,
         num_workers=config.num_workers,
         pin_memory=pin,
         collate_fn=collate_flows,
-        drop_last=len(train_ds) > config.batch_size,
     )
     val_loader = DataLoader(
         val_ds,
-        batch_size=config.batch_size,
-        shuffle=False,
+        batch_sampler=val_sampler,
         num_workers=config.num_workers,
         pin_memory=pin,
         collate_fn=collate_flows,
     )
     test_loader = DataLoader(
         test_ds,
-        batch_size=config.batch_size,
-        shuffle=False,
+        batch_sampler=test_sampler,
         num_workers=config.num_workers,
         pin_memory=pin,
         collate_fn=collate_flows,

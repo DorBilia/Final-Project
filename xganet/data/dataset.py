@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 
 from xganet.data.load_nf import FlowArrays
 
@@ -46,3 +46,34 @@ def collate_flows(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tenso
         "y_attack": torch.stack([item["y_attack"] for item in batch], dim=0),
         "y_binary": torch.stack([item["y_binary"] for item in batch], dim=0),
     }
+
+
+class SlidingWindowBatchSampler(Sampler[list[int]]):
+    """Yields batches of contiguous overlapping blocks instead of random individual items."""
+    def __init__(self, data_size: int, window_size: int, stride: int, shuffle_windows: bool = True) -> None:
+        self.data_size = data_size
+        self.window_size = window_size
+        self.stride = stride
+        self.shuffle_windows = shuffle_windows
+        self.windows = []
+        
+        # Precompute valid window index ranges
+        start = 0
+        while start + self.window_size <= self.data_size:
+            self.windows.append(list(range(start, start + self.window_size)))
+            start += self.stride
+            
+        # Handle the leftover chunk if desired (omitted for strict window sizing)
+        
+    def __iter__(self):
+        if self.shuffle_windows:
+            # Shuffle the order of the windows for the epoch
+            order = torch.randperm(len(self.windows)).tolist()
+            for idx in order:
+                yield self.windows[idx]
+        else:
+            for window in self.windows:
+                yield window
+                
+    def __len__(self) -> int:
+        return len(self.windows)

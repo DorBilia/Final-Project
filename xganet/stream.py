@@ -31,8 +31,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--ckpt", type=str, default="checkpoints/xganet_best.pt")  # Path to the trained model checkpoint
     parser.add_argument("--data", type=str, default="packet_dataset/nf_botiot_v2_sample.parquet")  # Path to the input NetFlow file for streaming
-    parser.add_argument("--window", type=int, default=128)  # Number of flows to include in each sliding window
-    parser.add_argument("--stride", type=int, default=128)  # Step size for advancing the sliding window
+    parser.add_argument("--window", type=int, default=256)  # Number of flows to include in each sliding window
+    parser.add_argument("--stride", type=int, default=60)  # Step size for advancing the sliding window
     parser.add_argument("--threshold", type=float, default=0.5)  # Minimum prediction probability required to trigger an alert
     parser.add_argument("--rate", type=float, default=0.0, help="Ingest flows/sec; 0 = unlimited")  # Ingestion rate in flows/sec; 0 means unlimited
     parser.add_argument("--jsonl", type=str, default=None)  # Optional path to output alerts in JSONL format
