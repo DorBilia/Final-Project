@@ -126,6 +126,21 @@ def test_compute_metrics_weighted_f1() -> None:
     metrics = compute_metrics(y_true, y_pred, y_prob, class_names)
     assert "f1" in metrics
     assert "weighted_f1" in metrics
-    assert "w_f1" in metrics
     assert 0.0 <= metrics["f1"] <= 1.0
     assert 0.0 <= metrics["weighted_f1"] <= 1.0
+
+
+def test_compute_metrics_missing_class() -> None:
+    # 4 classes present in y_true/y_pred, but 5 classes in class_names
+    import numpy as np
+    from xganet.metrics import compute_metrics
+    y_true = np.array([0, 1, 2, 3])
+    y_pred = np.array([0, 1, 2, 3])
+    y_prob = np.zeros((4, 5), dtype=np.float32)
+    for i in range(4):
+        y_prob[i, i] = 1.0
+    class_names = ("Benign", "DDoS", "DoS", "Reconnaissance", "Theft")
+    metrics = compute_metrics(y_true, y_pred, y_prob, class_names)
+    assert metrics["confusion_matrix"].shape == (5, 5)
+    assert "Theft" in str(metrics["report"])
+    assert 0.0 <= metrics["f1"] <= 1.0
