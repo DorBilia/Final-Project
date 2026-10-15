@@ -103,3 +103,29 @@ def test_xganet_forward_shapes() -> None:
     assert outputs["mask_f"].shape == (8,)
     assert outputs["attn_fs"].shape == (8, 8)
     assert torch.isfinite(outputs["logits"]).all()
+
+
+def test_relative_entropy_mask() -> None:
+    # Test relative=True scales entropy by ln(B)
+    masker = EntropyMask(threshold=0.7, alpha=1.0, relative=True)
+    tokens = torch.randn(8, 16)
+    attn = torch.softmax(torch.randn(8, 8), dim=-1)
+    masked, entropy, mask = masker(tokens, attn)
+    assert masked.shape == tokens.shape
+    assert torch.all((mask >= 0) & (mask <= 1))
+    assert torch.all(entropy >= 0)
+
+
+def test_compute_metrics_weighted_f1() -> None:
+    import numpy as np
+    from xganet.metrics import compute_metrics
+    y_true = np.array([0, 0, 1, 1, 2, 2])
+    y_pred = np.array([0, 0, 1, 0, 2, 2])
+    y_prob = np.eye(3)[y_pred]
+    class_names = ("Benign", "DDoS", "DoS")
+    metrics = compute_metrics(y_true, y_pred, y_prob, class_names)
+    assert "f1" in metrics
+    assert "weighted_f1" in metrics
+    assert "w_f1" in metrics
+    assert 0.0 <= metrics["f1"] <= 1.0
+    assert 0.0 <= metrics["weighted_f1"] <= 1.0

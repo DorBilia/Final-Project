@@ -44,6 +44,8 @@ class FlowArrays:
     class_names: tuple[str, ...]
     feat_min: np.ndarray
     feat_max: np.ndarray
+    struct_min: np.ndarray | None = None
+    struct_max: np.ndarray | None = None
 
 
 def _class_names(attacks: np.ndarray) -> tuple[str, ...]:
@@ -309,6 +311,36 @@ def split_indices(
     return train_idx, val_idx, test_idx
 
 
+def compute_struct_stats(
+    src_ids: np.ndarray,
+    dst_ids: np.ndarray,
+    time_index: np.ndarray,
+    train_idx: np.ndarray,
+    window_size: int,
+    stride: int,
+    delta_t: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute empirical struct_min/struct_max over window-local structure features on train windows."""
+    all_structs: list[np.ndarray] = []
+    n = len(train_idx)
+    start = 0
+    while start + window_size <= n:
+        idx = train_idx[start : start + window_size]
+        s = structure_features(src_ids[idx], dst_ids[idx], time_index[idx], delta_t)
+        all_structs.append(s)
+        start += stride
+    leftover = train_idx[start:]
+    if len(leftover) >= 2:
+        s = structure_features(src_ids[leftover], dst_ids[leftover], time_index[leftover], delta_t)
+        all_structs.append(s)
+    if not all_structs:
+        return np.zeros(4, dtype=np.float32), np.ones(4, dtype=np.float32)
+    combined = np.concatenate(all_structs, axis=0)
+    struct_min = combined.min(axis=0).astype(np.float32)
+    struct_max = combined.max(axis=0).astype(np.float32)
+    return struct_min, struct_max
+
+
 def _subset(payload: dict[str, np.ndarray | tuple[str, ...]], idx: np.ndarray) -> dict[str, np.ndarray]:
     return {
         "raw_features": payload["raw_features"][idx],
@@ -333,6 +365,16 @@ def split_flow_arrays(
     feat_min, feat_max = minmax_fit(train_raw)
     class_names = payload["class_names"]
 
+    struct_min, struct_max = compute_struct_stats(
+        payload["src_ids"],
+        payload["dst_ids"],
+        payload["time_index"],
+        train_idx,
+        config.batch_size,
+        config.stride,
+        config.delta_t,
+    )
+
     def _make(idx: np.ndarray) -> FlowArrays:
         if len(idx) == 0:
             idx = np.array([0]) # Fallback to prevent crash on empty split
@@ -348,6 +390,8 @@ def split_flow_arrays(
             class_names=class_names,
             feat_min=feat_min,
             feat_max=feat_max,
+            struct_min=struct_min,
+            struct_max=struct_max,
         )
 
     splits = {"train": train_idx, "val": val_idx, "test": test_idx}

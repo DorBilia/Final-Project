@@ -14,8 +14,9 @@ class XGANetConfig:
     xda_layers: int = 4
     attention_heads: int = 8
     diffusion_scale: float = 0.5
-    entropy_threshold: float = 1.2
+    entropy_threshold: float = 0.7
     entropy_alpha: float = 1.0
+    relative_entropy: bool = True
     contrastive_temperature: float = 0.1
     lambda_contrast: float = 0.1
     learning_rate: float = 1e-4
@@ -52,4 +53,8 @@ class XGANetConfig:
         keep = data.get("keep_all_classes", ("Theft",))
         filtered = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
         filtered["keep_all_classes"] = tuple(keep)
+        if "relative_entropy" not in filtered:
+            # If checkpoint has threshold > 1.0, it was trained with unnormalized entropy
+            thresh = filtered.get("entropy_threshold", 1.2)
+            filtered["relative_entropy"] = bool(thresh <= 1.0)
         return cls(**filtered)

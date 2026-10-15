@@ -10,8 +10,8 @@ import torch
 from torch.utils.data import DataLoader
 
 from xganet.config import XGANetConfig
-from xganet.data.dataset import FlowGraphDataset, collate_flows
-from xganet.data.load_nf import load_sampled_frame, arrays_from_frame, split_flow_arrays
+from xganet.data.dataset import FlowGraphDataset, WindowCollate, collate_flows
+from xganet.data.load_nf import arrays_from_frame, load_sampled_frame, split_flow_arrays
 from xganet.metrics import compute_metrics
 from xganet.models.xganet import XGANet
 from xganet.utils import autocast_context, configure_runtime, resolve_device, seed_everything
@@ -81,18 +81,36 @@ def main() -> None:
     train_arr, val_arr, test_arr, _splits = split_flow_arrays(arrays_payload, config)
     split_map = {"train": train_arr, "val": val_arr, "test": test_arr}
     dataset = FlowGraphDataset(split_map[args.split])
+
+    struct_min = (
+        np.asarray(payload["struct_min"], dtype=np.float32)
+        if "struct_min" in payload
+        else None
+    )
+    struct_max = (
+        np.asarray(payload["struct_max"], dtype=np.float32)
+        if "struct_max" in payload
+        else None
+    )
+
+    if struct_min is not None and struct_max is not None:
+        collate_fn = WindowCollate(struct_min, struct_max, config.delta_t)
+    else:
+        collate_fn = collate_flows
+
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
         shuffle=False,
-        collate_fn=collate_flows,
+        collate_fn=collate_fn,
     )
     model = XGANet(config, num_classes=len(class_names)).to(device)
     model.load_state_dict(payload["model"])
     metrics, explain = run_eval(model, loader, device, config.amp_dtype, class_names)
+    w_f1_str = f" weighted_f1={metrics['w_f1']:.4f}" if "w_f1" in metrics else ""
     print(f"split={args.split} accuracy={metrics['accuracy']:.4f} "
           f"precision={metrics['precision']:.4f} recall={metrics['recall']:.4f} "
-          f"f1={metrics['f1']:.4f} auc={metrics['auc']}")
+          f"f1={metrics['f1']:.4f}{w_f1_str} auc={metrics['auc']}")
     print(metrics["report"])
     print(
         "explainability: "

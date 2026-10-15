@@ -97,6 +97,16 @@ def run_stream(args: argparse.Namespace) -> int:
     class_names = tuple(payload["class_names"])
     feat_min = np.asarray(payload["feat_min"], dtype=np.float32)
     feat_max = np.asarray(payload["feat_max"], dtype=np.float32)
+    struct_min = (
+        np.asarray(payload["struct_min"], dtype=np.float32)
+        if "struct_min" in payload
+        else None
+    )
+    struct_max = (
+        np.asarray(payload["struct_max"], dtype=np.float32)
+        if "struct_max" in payload
+        else None
+    )
 
     model = XGANet(config, num_classes=len(class_names)).to(device)
     model.load_state_dict(payload["model"])
@@ -132,17 +142,26 @@ def run_stream(args: argparse.Namespace) -> int:
         f"threshold={args.threshold} benign={benign_label}",
         file=sys.stderr,
     )
-    
+    if struct_min is not None and struct_max is not None:
+        print("Loaded frozen structure scaling (struct_min/struct_max) from checkpoint", file=sys.stderr)
+
     y_true_map: dict[int, int] = {}
-    y_pred_map: dict[int, int] = {}
-    y_prob_map: dict[int, np.ndarray] = {}
-    
+    y_prob_sum: dict[int, np.ndarray] = {}
+    y_prob_count: dict[int, int] = {}
+
     try:
         for window_id, records in enumerate(
             iter_sliding_windows(iter(ingest), args.window, args.stride),
             start=1,
         ):
-            batch, meta = window_to_batch(records, feat_min, feat_max, config.delta_t)
+            batch, meta = window_to_batch(
+                records,
+                feat_min,
+                feat_max,
+                config.delta_t,
+                struct_min=struct_min,
+                struct_max=struct_max,
+            )
             probs = score_window(model, batch, device, config.amp_dtype)
             alerts = alerts_from_probs(
                 probs, class_names, meta, benign_label, args.threshold, window_id
@@ -151,17 +170,21 @@ def run_stream(args: argparse.Namespace) -> int:
                 print(format_alert_line(alert), flush=True)
                 if jsonl_handle is not None:
                     _write_jsonl(jsonl_handle, alert)
-                    
-            # Track predictions for evaluation
-            preds = probs.argmax(axis=-1)
+
+            # Accumulate probabilities across overlapping windows (ensembling)
+            # instead of blindly overwriting with the final window's prediction.
             for i, row_idx in enumerate(meta.row_idx):
                 row_idx = int(row_idx)
                 gt = meta.attacks[i]
                 if gt is not None and gt in class_names:
                     y_true_map[row_idx] = class_names.index(gt)
-                    y_pred_map[row_idx] = preds[i]
-                    y_prob_map[row_idx] = probs[i]
-                    
+                    if row_idx not in y_prob_sum:
+                        y_prob_sum[row_idx] = probs[i].copy()
+                        y_prob_count[row_idx] = 1
+                    else:
+                        y_prob_sum[row_idx] += probs[i]
+                        y_prob_count[row_idx] += 1
+
             n_windows += 1
             n_alerts += len(alerts)
             print(
@@ -180,20 +203,21 @@ def run_stream(args: argparse.Namespace) -> int:
         f"done windows={n_windows} alerts={n_alerts} elapsed_s={elapsed:.2f}",
         file=sys.stderr,
     )
-    
+
     if y_true_map:
         from xganet.metrics import compute_metrics
         all_rows = sorted(y_true_map.keys())
         y_true = np.array([y_true_map[k] for k in all_rows])
-        y_pred = np.array([y_pred_map[k] for k in all_rows])
-        y_prob = np.array([y_prob_map[k] for k in all_rows])
+        # Average probabilities across all windows that covered each flow
+        y_prob = np.array([y_prob_sum[k] / y_prob_count[k] for k in all_rows])
+        y_pred = y_prob.argmax(axis=-1)
         metrics = compute_metrics(y_true, y_pred, y_prob, class_names)
         print(f"\n--- Streaming Evaluation Metrics ({len(all_rows)} unique flows) ---")
-        print(f"Accuracy:  {metrics['accuracy']:.4f}")
-        print(f"Precision: {metrics['precision']:.4f}")
-        print(f"Recall:    {metrics['recall']:.4f}")
-        print(f"F1 Score:  {metrics['f1']:.4f}")
-        print(f"AUC:       {metrics['auc']:.4f}" if isinstance(metrics['auc'], float) else f"AUC:       {metrics['auc']}")
+        print(f"Accuracy:      {metrics['accuracy']:.4f}")
+        print(f"Macro F1:      {metrics['f1']:.4f}  (P={metrics['precision']:.4f}, R={metrics['recall']:.4f})")
+        if "w_f1" in metrics:
+            print(f"Weighted F1:   {metrics['w_f1']:.4f}  (P={metrics['w_precision']:.4f}, R={metrics['w_recall']:.4f})")
+        print(f"AUC:           {metrics['auc']:.4f}" if isinstance(metrics['auc'], float) else f"AUC:           {metrics['auc']}")
         print(metrics["report"])
 
     return 0

@@ -19,9 +19,11 @@ def diffusion_delta(feature_emb: torch.Tensor, structure_emb: torch.Tensor) -> t
     cos_s = struct_norm @ struct_norm.transpose(0, 1)
 
     # log_den calculates log(sum(exp(cos_s)))
-    log_den = torch.logsumexp(cos_s, dim=0, keepdim=True)
+    # Subtract log(B) so denominator represents the mean over batch rather than sum,
+    # preventing Δ(F, S) from vanishing to ~1/B when B=256.
+    log_den = torch.logsumexp(cos_s, dim=0, keepdim=True) - math.log(max(cos_s.size(0), 1))
 
-    # torch.exp(cos_f - log_den) calculates (exp(cos_f) / sum(exp(cos_s)))
+    # torch.exp(cos_f - log_den) calculates (exp(cos_f) / mean(exp(cos_s)))
     # torch.log1p(x) calculates log(1 + x) safely
     return torch.log1p(torch.exp(cos_f - log_den))
 
