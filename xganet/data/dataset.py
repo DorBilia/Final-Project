@@ -23,8 +23,8 @@ class FlowGraphDataset(Dataset):
         self.class_names = arrays.class_names
         self.feat_min = arrays.feat_min
         self.feat_max = arrays.feat_max
-        self.struct_min = arrays.struct_min
-        self.struct_max = arrays.struct_max
+        self.struct_min = getattr(arrays, "struct_min", None)
+        self.struct_max = getattr(arrays, "struct_max", None)
 
     def __len__(self) -> int:
         return int(self.features.size(0))
@@ -54,19 +54,18 @@ def collate_flows(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tenso
 
 
 class WindowCollate:
-    """Collate function that recomputes structure features per-batch.
+    """Collate function that computes structure features dynamically per-batch.
 
-    During training, this replaces the globally-precomputed structure
-    features with window-local structure features (exactly matching
-    streaming inference) and applies frozen struct min–max scaling.
-    This eliminates the train/stream distribution shift that was the
-    primary cause of F1 degradation.
+    During training and evaluation, this replaces globally-precomputed structure
+    features with window-local structure features (matching streaming replay)
+    and applies frozen struct min–max scaling. This eliminates the train/stream
+    distribution shift.
     """
 
     def __init__(
         self,
-        struct_min: np.ndarray,
-        struct_max: np.ndarray,
+        struct_min: np.ndarray | None,
+        struct_max: np.ndarray | None,
         delta_t: int,
     ) -> None:
         self.struct_min = struct_min
@@ -81,13 +80,13 @@ class WindowCollate:
         y_attack = torch.stack([item["y_attack"] for item in batch], dim=0)
         y_binary = torch.stack([item["y_binary"] for item in batch], dim=0)
 
-        # Recompute structure features window-locally (matching streaming)
+        # Compute structure features window-locally on this batch
         struct_np = structure_features(
             src_ids.numpy(), dst_ids.numpy(), time_index.numpy(), self.delta_t
         )
-        # Apply frozen struct min–max scaling
-        struct_scaled = minmax_scale(struct_np, self.struct_min, self.struct_max)
-        structure = torch.from_numpy(np.ascontiguousarray(struct_scaled))
+        if self.struct_min is not None and self.struct_max is not None:
+            struct_np = minmax_scale(struct_np, self.struct_min, self.struct_max)
+        structure = torch.from_numpy(np.ascontiguousarray(struct_np))
 
         return {
             "features": features,

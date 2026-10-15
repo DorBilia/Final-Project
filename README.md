@@ -65,13 +65,13 @@ This is **offline-trained, online-replay**. There is no packet sniffer or nProbe
 python -m xganet.stream \
   --ckpt checkpoints/xganet_best.pt \
   --data packet_dataset/nf_botiot_v2_sample.parquet \
-  --window 128 --stride 128 --threshold 0.5 --rate 0
+  --window 256 --stride 60 --threshold 0.5 --rate 0
 ```
 
 | Flag | Default | Role |
 | --- | --- | --- |
-| `--window` | 128 | Flows in each scored graph (same size as training `B`) |
-| `--stride` | 128 | How far to advance; `32` overlaps windows for snappier alerts |
+| `--window` | 256 | Flows in each scored graph (same size as training `B`) |
+| `--stride` | 60 | How far to advance; overlaps windows for snappier alerts and probability ensembling |
 | `--threshold` | 0.5 | Minimum predicted-class probability to alert |
 | `--rate` | 0 | Ingest pace in flows/sec; `0` is as fast as the GPU allows |
 | `--jsonl` | unset | Append the same alert records as JSON lines |
@@ -80,9 +80,11 @@ python -m xganet.stream \
 
 A leftover partial window is scored if it has at least two flows; a single leftover row is skipped.
 
-**Scaling is frozen** from the checkpoint (`feat_min` / `feat_max`). The stream never refits min–max.
+**Scaling is frozen** from the checkpoint for both flow features (`feat_min` / `feat_max`) and structure features (`struct_min` / `struct_max`). The stream never refits min–max.
 
-**Structure features are window-local.** Degree, centrality, and IP/time flags are computed on the current window only, not on the 90,600-row training subsample. That is the honest online version of Table 4 and will differ slightly from training’s global degrees. Time edges still use CSV `row_idx` and `Δt` (default 100 rows).
+**Structure features are window-local**, matching the training pipeline's `WindowCollate`. Degree, centrality, and IP/time flags are computed on the current window and scaled with frozen stats.
+
+**Overlapping window ensembling**: With `stride < window`, each flow's predicted class probabilities are averaged across all windows covering that flow, eliminating boundary truncation artifacts. Both Macro F1 and Weighted F1 are reported.
 
 Alert line example:
 

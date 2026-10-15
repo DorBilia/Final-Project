@@ -53,4 +53,8 @@ class XGANetConfig:
         keep = data.get("keep_all_classes", ("Theft",))
         filtered = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
         filtered["keep_all_classes"] = tuple(keep)
+        if "relative_entropy" not in filtered:
+            # If checkpoint has threshold > 1.0, it was trained with unnormalized entropy
+            thresh = filtered.get("entropy_threshold", 1.2)
+            filtered["relative_entropy"] = bool(thresh <= 1.0)
         return cls(**filtered)

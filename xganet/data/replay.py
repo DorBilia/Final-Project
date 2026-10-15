@@ -203,6 +203,8 @@ def window_to_batch(
     feat_min: np.ndarray,
     feat_max: np.ndarray,
     delta_t: int,
+    struct_min: np.ndarray | None = None,
+    struct_max: np.ndarray | None = None,
 ) -> tuple[dict[str, torch.Tensor], WindowMeta]:
     """Scale a window with frozen min–max and build window-local structure features."""
     if len(records) < 2:
@@ -223,6 +225,8 @@ def window_to_batch(
     )
     features = minmax_scale(raw_features, feat_min, feat_max)
     structure = structure_features(src_ids, dst_ids, time_index, delta_t)
+    if struct_min is not None and struct_max is not None:
+        structure = minmax_scale(structure, struct_min, struct_max)
     batch = {
         "features": torch.from_numpy(np.ascontiguousarray(features)),
         "structure": torch.from_numpy(np.ascontiguousarray(structure)),

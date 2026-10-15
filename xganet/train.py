@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from xganet.config import XGANetConfig
-from xganet.data.dataset import FlowGraphDataset, collate_flows, SlidingWindowBatchSampler
+from xganet.data.dataset import FlowGraphDataset, SlidingWindowBatchSampler, WindowCollate, collate_flows
 from xganet.data.load_nf import load_flow_arrays
 from xganet.metrics import compute_metrics
 from xganet.models.losses import XGANetCriterion
@@ -137,6 +137,8 @@ def save_checkpoint(
     splits: dict[str, np.ndarray],
     metrics: dict[str, object],
     epoch: int,
+    struct_min: np.ndarray | None = None,
+    struct_max: np.ndarray | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     serial_metrics = {
@@ -144,19 +146,21 @@ def save_checkpoint(
         for key, value in metrics.items()
         if key != "confusion_matrix"
     }
-    torch.save(
-        {
-            "model": model.state_dict(),
-            "config": config.to_dict(),
-            "class_names": class_names,
-            "feat_min": feat_min,
-            "feat_max": feat_max,
-            "splits": splits,
-            "metrics": serial_metrics,
-            "epoch": epoch,
-        },
-        path,
-    )
+    payload: dict[str, object] = {
+        "model": model.state_dict(),
+        "config": config.to_dict(),
+        "class_names": class_names,
+        "feat_min": feat_min,
+        "feat_max": feat_max,
+        "splits": splits,
+        "metrics": serial_metrics,
+        "epoch": epoch,
+    }
+    if struct_min is not None:
+        payload["struct_min"] = struct_min
+    if struct_max is not None:
+        payload["struct_max"] = struct_max
+    torch.save(payload, path)
 
 
 def main() -> None:
@@ -191,26 +195,30 @@ def main() -> None:
         len(test_ds), config.batch_size, config.stride, shuffle_windows=False
     )
 
+    collate = WindowCollate(
+        train_arr.struct_min, train_arr.struct_max, config.delta_t
+    )
+
     train_loader = DataLoader(
         train_ds,
         batch_sampler=train_sampler,
         num_workers=config.num_workers,
         pin_memory=pin,
-        collate_fn=collate_flows,
+        collate_fn=collate,
     )
     val_loader = DataLoader(
         val_ds,
         batch_sampler=val_sampler,
         num_workers=config.num_workers,
         pin_memory=pin,
-        collate_fn=collate_flows,
+        collate_fn=collate,
     )
     test_loader = DataLoader(
         test_ds,
         batch_sampler=test_sampler,
         num_workers=config.num_workers,
         pin_memory=pin,
-        collate_fn=collate_flows,
+        collate_fn=collate,
     )
 
     model = XGANet(config, num_classes=len(class_names)).to(device)
@@ -231,9 +239,11 @@ def main() -> None:
         val_loss, val_metrics = evaluate_loader(
             model, val_loader, criterion, device, config.amp_dtype, class_names
         )
+        w_f1_str = f" val_wf1={val_metrics['w_f1']:.4f}" if "w_f1" in val_metrics else ""
         print(
             f"epoch {epoch:03d} train_loss={train_loss:.4f} "
-            f"val_loss={val_loss:.4f} val_acc={val_metrics['accuracy']:.4f}"
+            f"val_loss={val_loss:.4f} val_acc={val_metrics['accuracy']:.4f} "
+            f"val_f1={val_metrics['f1']:.4f}{w_f1_str}"
         )
         if val_loss + 1e-6 < best_val:
             best_val = val_loss
@@ -248,6 +258,8 @@ def main() -> None:
                 splits,
                 val_metrics,
                 epoch,
+                struct_min=train_arr.struct_min,
+                struct_max=train_arr.struct_max,
             )
         else:
             stale += 1
@@ -261,7 +273,8 @@ def main() -> None:
     test_loss, test_metrics = evaluate_loader(
         model, test_loader, criterion, device, config.amp_dtype, class_names
     )
-    print(f"test_loss={test_loss:.4f} test_acc={test_metrics['accuracy']:.4f}")
+    w_f1_test = f" test_wf1={test_metrics['w_f1']:.4f}" if "w_f1" in test_metrics else ""
+    print(f"test_loss={test_loss:.4f} test_acc={test_metrics['accuracy']:.4f} test_f1={test_metrics['f1']:.4f}{w_f1_test}")
     print(test_metrics["report"])
     save_checkpoint(
         ckpt_dir / "xganet_last.pt",
@@ -273,6 +286,8 @@ def main() -> None:
         splits,
         test_metrics,
         epoch,
+        struct_min=train_arr.struct_min,
+        struct_max=train_arr.struct_max,
     )
     cm = test_metrics["confusion_matrix"]
     np.save(ckpt_dir / "confusion_matrix.npy", cm)

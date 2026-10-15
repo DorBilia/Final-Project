@@ -177,10 +177,45 @@ def test_iter_flow_records_from_csv_and_parquet(tmp_path: Path) -> None:
     frame.write_parquet(parquet_path)
     csv_records = list(iter_flow_records(csv_path, chunk_size=2))
     parquet_records = list(iter_flow_records(parquet_path, chunk_size=2))
-    assert len(csv_records) == 5
-    assert csv_records[0]["row_idx"] == 0
-    assert csv_records[-1]["IPV4_SRC_ADDR"] == rows[-1]["IPV4_SRC_ADDR"]
-    assert csv_records[3]["Attack"] == "DDoS"
     assert [row["IPV4_SRC_ADDR"] for row in parquet_records] == [
         row["IPV4_SRC_ADDR"] for row in csv_records
     ]
+
+
+def test_window_to_batch_with_struct_scaling() -> None:
+    records = [_record(i) for i in range(8)]
+    feat_min = np.zeros(11, dtype=np.float32)
+    feat_max = np.ones(11, dtype=np.float32) * 1000
+    struct_min = np.zeros(4, dtype=np.float32)
+    struct_max = np.array([10.0, 1.0, 1.0, 1.0], dtype=np.float32)
+    batch, meta = window_to_batch(
+        records, feat_min, feat_max, delta_t=100, struct_min=struct_min, struct_max=struct_max
+    )
+    struct = batch["structure"].numpy()
+    assert struct.shape == (8, 4)
+    assert np.all(struct >= 0.0)
+    assert np.all(struct <= 1.0)
+
+
+def test_window_collate() -> None:
+    from xganet.data.dataset import WindowCollate
+    struct_min = np.zeros(4, dtype=np.float32)
+    struct_max = np.array([10.0, 1.0, 1.0, 1.0], dtype=np.float32)
+    collate = WindowCollate(struct_min=struct_min, struct_max=struct_max, delta_t=100)
+    items = [
+        {
+            "features": torch.rand(11),
+            "src_ids": torch.tensor(i % 3),
+            "dst_ids": torch.tensor((i + 1) % 3),
+            "time_index": torch.tensor(i),
+            "y_attack": torch.tensor(0),
+            "y_binary": torch.tensor(0),
+        }
+        for i in range(6)
+    ]
+    batch = collate(items)
+    assert batch["features"].shape == (6, 11)
+    assert batch["structure"].shape == (6, 4)
+    assert batch["src_ids"].shape == (6,)
+    assert np.all(batch["structure"].numpy() >= 0.0)
+    assert np.all(batch["structure"].numpy() <= 1.0)

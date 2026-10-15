@@ -44,8 +44,8 @@ class FlowArrays:
     class_names: tuple[str, ...]
     feat_min: np.ndarray
     feat_max: np.ndarray
-    struct_min: np.ndarray
-    struct_max: np.ndarray
+    struct_min: np.ndarray | None = None
+    struct_max: np.ndarray | None = None
 
 
 def _class_names(attacks: np.ndarray) -> tuple[str, ...]:
@@ -320,12 +320,7 @@ def compute_struct_stats(
     stride: int,
     delta_t: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute struct_min/struct_max from window-local structure features over training windows.
-
-    This sweeps contiguous windows through training data and computes
-    structure features per-window (exactly as streaming does), then fits
-    min/max statistics across all windows.
-    """
+    """Compute empirical struct_min/struct_max over window-local structure features on train windows."""
     all_structs: list[np.ndarray] = []
     n = len(train_idx)
     start = 0
@@ -334,7 +329,6 @@ def compute_struct_stats(
         s = structure_features(src_ids[idx], dst_ids[idx], time_index[idx], delta_t)
         all_structs.append(s)
         start += stride
-    # Handle leftover if >= 2 flows
     leftover = train_idx[start:]
     if len(leftover) >= 2:
         s = structure_features(src_ids[leftover], dst_ids[leftover], time_index[leftover], delta_t)
@@ -371,8 +365,6 @@ def split_flow_arrays(
     feat_min, feat_max = minmax_fit(train_raw)
     class_names = payload["class_names"]
 
-    # Compute struct stats from window-local structure features over training
-    # windows.  This ensures training and streaming see the same normalisation.
     struct_min, struct_max = compute_struct_stats(
         payload["src_ids"],
         payload["dst_ids"],
