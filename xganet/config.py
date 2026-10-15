@@ -14,8 +14,9 @@ class XGANetConfig:
     xda_layers: int = 4
     attention_heads: int = 8
     diffusion_scale: float = 0.5
-    entropy_threshold: float = 1.2
+    entropy_threshold: float = 0.7
     entropy_alpha: float = 1.0
+    relative_entropy: bool = True
     contrastive_temperature: float = 0.1
     lambda_contrast: float = 0.1
     learning_rate: float = 1e-4

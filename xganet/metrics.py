@@ -21,11 +21,17 @@ def compute_metrics(
     precision, recall, f1, _support = precision_recall_fscore_support(
         y_true, y_pred, average="macro", zero_division=0
     )
+    w_precision, w_recall, w_f1, _ = precision_recall_fscore_support(
+        y_true, y_pred, average="weighted", zero_division=0
+    )
     metrics: dict[str, object] = {
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "precision": float(precision),
         "recall": float(recall),
         "f1": float(f1),
+        "w_precision": float(w_precision),
+        "w_recall": float(w_recall),
+        "w_f1": float(w_f1),
         "confusion_matrix": confusion_matrix(y_true, y_pred),
         "report": classification_report(
             y_true, y_pred, target_names=list(class_names), zero_division=0

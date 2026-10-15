@@ -39,7 +39,7 @@ class XDABlock(nn.Module):
         self.xda_f2s = CrossDiffusedAttention(d, h, config.diffusion_scale)
         self.xda_s2f = CrossDiffusedAttention(d, h, config.diffusion_scale)
         self.lcm = LearnableCooccurrence(d, config.lcm_init_scale)
-        self.mask = EntropyMask(config.entropy_threshold, config.entropy_alpha)
+        self.mask = EntropyMask(config.entropy_threshold, config.entropy_alpha, config.relative_entropy)
         self.norm_f = nn.LayerNorm(d)
         self.norm_s = nn.LayerNorm(d)
         self.ffn_f = FeedForward(d, config.ffn_multiplier)
@@ -114,8 +114,8 @@ class XGANet(nn.Module):
         logits = self.classifier(fused)
         outputs = {
             "logits": logits,
-            "feature_emb": feature_emb,
-            "structure_emb": structure_emb,
+            "feature_emb": aligned_f,
+            "structure_emb": aligned_s,
             "fused": fused,
             "gate": gate,
         }
